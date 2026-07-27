@@ -6,10 +6,23 @@ A custom node for ComfyUI that makes prompt editing easier by allowing phrase sw
 
 ## Features
 
-- **Enable/disable phrases** with checkboxes
+- **Enable/disable phrases** with checkboxes (manual mode)
+- **Randomly pick phrases** with a seed (auto mode)
 - **Adjust prompt weights** using +/- buttons
 - **Combine with other prompts** using prefix input
 - **Customize output format** with delimiter and line break options
+
+## Modes
+
+The `mode` widget switches between two ways of selecting phrases:
+
+- **manual** (default): the original behaviour. Use the checkboxes to enable or
+  disable each phrase; every enabled line is included in the output.
+- **auto**: the checkboxes are hidden. On each run, `count` lines are picked at
+  random from the text (using `seed`), and the selection is shown at the bottom
+  of the node. `//` comment markers are ignored in this mode, so every non-empty
+  line is a candidate. The `count` and `seed` widgets stay visible in both modes
+  so `seed` can be connected to an external input.
 
 ## Installation
 
@@ -35,6 +48,11 @@ A custom node for ComfyUI that makes prompt editing easier by allowing phrase sw
      <img src="examples/output-format.png" alt="Output Format" width="400px" />
 
 ## Changelog
+
+### v1.4.0
+- Added `mode` widget with `manual` (checkboxes) and `auto` (random pick) modes
+- Added `count` and `seed` widgets for the auto mode random selection
+- The resolved selection is shown at the bottom of the node in auto mode
 
 ### v1.3.0
 - Added delimiter widget to separate phrases with comma, space, or nothing
