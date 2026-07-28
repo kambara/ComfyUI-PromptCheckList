@@ -1,3 +1,4 @@
+import hashlib
 import os
 import random
 
@@ -48,6 +49,7 @@ class PromptPalette:
                 ),
             },
             "optional": {"prefix": ("STRING", {"forceInput": True})},
+            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = ("STRING",)
@@ -55,12 +57,20 @@ class PromptPalette:
     CATEGORY = "utils"
 
     def process(
-        self, text, delimiter, line_break, mode="manual", count=1, seed=0, prefix=None
+        self,
+        text,
+        delimiter,
+        line_break,
+        mode="manual",
+        count=1,
+        seed=0,
+        prefix=None,
+        unique_id=None,
     ):
         lines = text.split("\n")
 
         if mode == "auto":
-            phrases = self._collect_auto_phrases(lines, count, seed)
+            phrases = self._collect_auto_phrases(lines, count, seed, unique_id)
         else:
             phrases = self._collect_manual_phrases(lines)
 
@@ -103,7 +113,7 @@ class PromptPalette:
             phrases.append(line)
         return phrases
 
-    def _collect_auto_phrases(self, lines, count, seed):
+    def _collect_auto_phrases(self, lines, count, seed, unique_id):
         """Auto mode: pick `count` random lines. Comments are ignored, so every
         non-empty line is a candidate and the '//' markers are stripped out."""
         candidates = []
@@ -120,10 +130,20 @@ class PromptPalette:
         if pick_count <= 0:
             return []
 
-        rng = random.Random(seed)
+        rng = random.Random(self._effective_seed(seed, unique_id))
         picked = rng.sample(candidates, pick_count)
         picked.sort(key=lambda item: item[0])
         return [phrase for _, phrase in picked]
+
+    def _effective_seed(self, seed, unique_id):
+        """Derive a per-node seed so that chaining several Prompt Palette nodes
+        with the same 'seed' value doesn't correlate their picks: random.Random
+        instances seeded identically consume the same underlying bit stream,
+        which biases combos when nodes share a seed (e.g. two palettes wired to
+        the same seed widget). Mixing in the node's unique_id keeps the result
+        deterministic per node while decorrelating it from other nodes."""
+        digest = hashlib.sha256(f"{seed}:{unique_id}".encode()).digest()
+        return int.from_bytes(digest[:8], "big")
 
     def _strip_comments(self, line):
         """Remove a leading '// ' marker and any inline '//' comment."""
