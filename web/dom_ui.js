@@ -1,6 +1,7 @@
 import {
   findDelimiterWidget,
   findLineBreakWidget,
+  findModeWidget,
   findTextWidget,
   hideWidget,
   showWidget,
@@ -9,6 +10,7 @@ import {
 } from "./ui_utils.js";
 import { Line } from "./line.js";
 import { TextLines } from "./text_lines.js";
+import { SelectionDisplay } from "./selection_display.js";
 
 const CONFIG = {
   lineHeight: 24,
@@ -82,7 +84,16 @@ export function setupDomUI(nodeType, app) {
     }
     validateDelimiterValue(findDelimiterWidget(this));
     validateLineBreakValue(findLineBreakWidget(this));
+    this.__promptPaletteDomUI?.applyModeLayout();
     this.__promptPaletteDomUI?.requestRedraw();
+  };
+
+  const origOnExecuted = nodeType.prototype.onExecuted;
+  nodeType.prototype.onExecuted = function (message) {
+    if (origOnExecuted) {
+      origOnExecuted.apply(this, arguments);
+    }
+    this.__promptPaletteDomUI?.updateSelection(message);
   };
 }
 
@@ -101,6 +112,7 @@ class PromptPaletteDomUI {
   #textWidget;
   #delimiterWidget;
   #lineBreakWidget;
+  #modeWidget;
   #app;
   #mode;
   #rootContainer;
@@ -108,12 +120,14 @@ class PromptPaletteDomUI {
   #emptyMessage;
   #toggleButton;
   #rootWidget;
+  #selectionDisplay;
 
   constructor(node, textWidget, app) {
     this.#node = node;
     this.#textWidget = textWidget;
     this.#delimiterWidget = findDelimiterWidget(node);
     this.#lineBreakWidget = findLineBreakWidget(node);
+    this.#modeWidget = findModeWidget(node);
     this.#app = app;
     this.#mode = PromptPaletteDomUI.MODE.DISPLAY;
 
@@ -142,18 +156,79 @@ class PromptPaletteDomUI {
       PromptPaletteDomUI.EVENT.WEIGHT_MINUS,
       (event) => this.#handleRowWeightMinusEvent(event),
     );
+    this.#selectionDisplay = new SelectionDisplay(this.#node);
     this.#attachCollapseHook();
     this.#updateRootWidgetVisibility();
     hideWidget(this.#textWidget);
     hideWidget(this.#delimiterWidget);
     hideWidget(this.#lineBreakWidget);
+    this.#bindModeWidget();
+    this.applyModeLayout();
   }
 
   // Called after widget values are restored (workflow load, copy/paste).
   requestRedraw() {
+    if (this.#isAutoMode()) {
+      return;
+    }
     if (this.#mode === PromptPaletteDomUI.MODE.DISPLAY) {
       this.#buildDisplayRows();
     }
+  }
+
+  // ========================================
+  // Selection Mode (manual / auto)
+  // ========================================
+  #isAutoMode() {
+    return this.#modeWidget ? this.#modeWidget.value === "auto" : false;
+  }
+
+  #bindModeWidget() {
+    if (!this.#modeWidget) return;
+    const origCallback = this.#modeWidget.callback;
+    this.#modeWidget.callback = (value, ...rest) => {
+      if (origCallback) {
+        origCallback.call(this.#modeWidget, value, ...rest);
+      }
+      this.applyModeLayout();
+    };
+  }
+
+  // Reconfigure the UI for the current selection mode.
+  applyModeLayout() {
+    if (this.#isAutoMode()) {
+      // Auto mode: hide the checkbox palette, show the plain widgets so the
+      // pool can be edited, and reveal the selection readout.
+      this.#rootContainer.style.display = "none";
+      if (this.#rootWidget) {
+        this.#rootWidget.hidden = true;
+        if (this.#rootWidget.options) {
+          this.#rootWidget.options.hidden = true;
+        }
+      }
+      showWidget(this.#textWidget);
+      showWidget(this.#delimiterWidget);
+      showWidget(this.#lineBreakWidget);
+      this.#selectionDisplay.setVisible(true);
+    } else {
+      // Manual mode: back to the display palette (Edit/Save toggle + rows).
+      this.#mode = PromptPaletteDomUI.MODE.DISPLAY;
+      this.#toggleButton.textContent = "Edit";
+      hideWidget(this.#textWidget);
+      hideWidget(this.#delimiterWidget);
+      hideWidget(this.#lineBreakWidget);
+      this.#selectionDisplay.setVisible(false);
+      this.#updateRootWidgetVisibility();
+      this.#buildDisplayRows();
+    }
+    this.#refreshNodeWidgets();
+    this.#app.graph.setDirtyCanvas(true);
+  }
+
+  updateSelection(message) {
+    const selected = message?.selected;
+    const text = Array.isArray(selected) ? selected[0] : selected;
+    this.#selectionDisplay.setText(text);
   }
 
   // ========================================

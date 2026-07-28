@@ -3,6 +3,7 @@ import {
   calculateNodeHeight,
   findDelimiterWidget,
   findLineBreakWidget,
+  findModeWidget,
   findTextWidget,
   hideWidget,
   hideWidgetAndKeepSpace,
@@ -11,6 +12,7 @@ import {
   validateLineBreakValue,
 } from "./ui_utils.js";
 import { TextLines } from "./text_lines.js";
+import { SelectionDisplay } from "./selection_display.js";
 
 const CONFIG = {
   minNodeHeight: 80,
@@ -64,6 +66,15 @@ export function setupCanvasUI(nodeType, app) {
     }
     validateDelimiterValue(findDelimiterWidget(this));
     validateLineBreakValue(findLineBreakWidget(this));
+    this.__promptPaletteCanvasUI?.applyModeLayout();
+  };
+
+  const origOnExecuted = nodeType.prototype.onExecuted;
+  nodeType.prototype.onExecuted = function (message) {
+    if (origOnExecuted) {
+      origOnExecuted.apply(this, arguments);
+    }
+    this.__promptPaletteCanvasUI?.updateSelection(message);
   };
 
   const origOnDrawForeground = nodeType.prototype.onDrawForeground;
@@ -90,16 +101,19 @@ class PromptPaletteCanvasUI {
   #textWidget;
   #delimiterWidget;
   #lineBreakWidget;
+  #modeWidget;
   #app;
   #mode;
   #clickableAreas;
   #toggleButton;
+  #selectionDisplay;
 
   constructor(node, textWidget, app) {
     this.#node = node;
     this.#textWidget = textWidget;
     this.#delimiterWidget = findDelimiterWidget(node);
     this.#lineBreakWidget = findLineBreakWidget(node);
+    this.#modeWidget = findModeWidget(node);
     this.#app = app;
     this.#mode = PromptPaletteCanvasUI.MODE.DISPLAY;
     this.#clickableAreas = [];
@@ -109,14 +123,63 @@ class PromptPaletteCanvasUI {
     hideWidget(this.#delimiterWidget);
     hideWidget(this.#lineBreakWidget);
     this.#addToggleButton();
+    this.#selectionDisplay = new SelectionDisplay(node);
     this.#attachClickHandler();
+    this.#bindModeWidget();
+    this.applyModeLayout();
   }
 
   draw(ctx) {
+    // The checkbox palette only exists in manual mode.
+    if (this.#isAutoMode()) {
+      return;
+    }
     if (this.#mode !== PromptPaletteCanvasUI.MODE.DISPLAY) {
       return;
     }
     this.#drawCheckboxList(ctx);
+  }
+
+  // ========================================
+  // Selection Mode (manual / auto)
+  // ========================================
+  #isAutoMode() {
+    return this.#modeWidget ? this.#modeWidget.value === "auto" : false;
+  }
+
+  #bindModeWidget() {
+    if (!this.#modeWidget) return;
+    const origCallback = this.#modeWidget.callback;
+    this.#modeWidget.callback = (value, ...rest) => {
+      if (origCallback) {
+        origCallback.call(this.#modeWidget, value, ...rest);
+      }
+      this.applyModeLayout();
+    };
+  }
+
+  // Reconfigure which widgets are visible for the current selection mode.
+  applyModeLayout() {
+    if (this.#isAutoMode()) {
+      // Auto mode: no checkbox palette. Show the plain widgets so the pool can
+      // be edited, hide the Edit/Save toggle, and show the selection readout.
+      hideWidget(this.#toggleButton);
+      showWidget(this.#textWidget);
+      showWidget(this.#delimiterWidget);
+      showWidget(this.#lineBreakWidget);
+      this.#selectionDisplay.setVisible(true);
+    } else {
+      showWidget(this.#toggleButton);
+      this.#selectionDisplay.setVisible(false);
+      this.#updateWidgetVisibility();
+    }
+    this.#app.graph.setDirtyCanvas(true);
+  }
+
+  updateSelection(message) {
+    const selected = message?.selected;
+    const text = Array.isArray(selected) ? selected[0] : selected;
+    this.#selectionDisplay.setText(text);
   }
 
   // ========================================
